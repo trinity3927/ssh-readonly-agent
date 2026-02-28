@@ -9,6 +9,7 @@ set -euo pipefail
 PUBKEY='REPLACE_WITH_AGENT_PUBLIC_KEY'
 
 USER_NAME='agent_ro'
+USER_SHELL="${USER_SHELL:-/bin/bash}"
 DISPATCHER='/usr/local/sbin/agent_ro_dispatch.py'
 SSHD_MATCH='/etc/ssh/sshd_config.d/90-agent-ro.conf'
 DEFAULT_ALLOWED_DIRS=(/home /srv /opt /var/log /etc /var/lib/docker /mnt /data /media)
@@ -233,10 +234,10 @@ trap repair_ssh_host_keys EXIT INT TERM
 
 echo "[1/6] Creating locked user ${USER_NAME} (no shell login, no sudo)..."
 if ! id -u "${USER_NAME}" >/dev/null 2>&1; then
-  sudo useradd -m -d "/home/${USER_NAME}" -s /usr/sbin/nologin "${USER_NAME}"
+  sudo useradd -m -d "/home/${USER_NAME}" -s "${USER_SHELL}" "${USER_NAME}"
   CHANGED=1
 fi
-sudo usermod -d "/home/${USER_NAME}" -s /usr/sbin/nologin "${USER_NAME}"
+sudo usermod -d "/home/${USER_NAME}" -s "${USER_SHELL}" "${USER_NAME}"
 sudo usermod -L "${USER_NAME}"
 if id -nG "${USER_NAME}" 2>/dev/null | tr ' ' '\n' | grep -qx sudo; then
   sudo gpasswd -d "${USER_NAME}" sudo >/dev/null
