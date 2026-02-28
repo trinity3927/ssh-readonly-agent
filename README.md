@@ -36,24 +36,30 @@ Standalone kit to provision an SSH account (`agent_ro`) for read-only remote evi
 ## Quick Start
 
 1. Copy this folder to the target host.
-2. Edit `scripts/agent_ro_setup.sh` and set `PUBKEY='...'`.
-3. Run setup (safe default, no ACL writes):
+2. Run setup (safe default, no ACL writes). The script accepts pubkey by argument/env, or prompts for it:
 
 ```bash
-bash scripts/agent_ro_setup.sh
+./scripts/agent_ro_setup.sh 'ssh-ed25519 AAAA... comment'
 ```
 
-4. If you want ACL grants, enable them explicitly:
+or
+
+```bash
+PUBKEY='ssh-ed25519 AAAA... comment' ./scripts/agent_ro_setup.sh
+```
+
+or run with no args and follow the prompt.
+
+3. If you want ACL grants, enable them explicitly:
 
 ```bash
 APPLY_ACL=1 bash scripts/agent_ro_setup.sh
 ```
 
-5. Edit `scripts/agent_ro_verify.sh` and set `HOST='...'`.
-6. Run verify from another machine:
+4. Run verify from another machine:
 
 ```bash
-bash scripts/agent_ro_verify.sh
+./scripts/agent_ro_verify.sh homelab
 ```
 
 ## Useful run modes

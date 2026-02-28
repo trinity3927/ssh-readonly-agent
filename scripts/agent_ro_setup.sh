@@ -4,9 +4,13 @@ if [ -z "${BASH_VERSION:-}" ]; then
 fi
 set -euo pipefail
 
-# Replace this with the agent's SSH public key line.
-# Example: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... agent-name
-PUBKEY='REPLACE_WITH_AGENT_PUBLIC_KEY'
+# Usage:
+#   ./agent_ro_setup.sh '<ssh-public-key-line>'
+#   PUBKEY='<ssh-public-key-line>' ./agent_ro_setup.sh
+PUBKEY="${PUBKEY:-REPLACE_WITH_AGENT_PUBLIC_KEY}"
+if [[ "${#}" -ge 1 ]]; then
+  PUBKEY="$1"
+fi
 
 USER_NAME='agent_ro'
 USER_SHELL="${USER_SHELL:-/bin/bash}"
@@ -215,8 +219,33 @@ apply_acl_with_progress() {
   return 0
 }
 
-if [[ "${PUBKEY}" == 'REPLACE_WITH_AGENT_PUBLIC_KEY' ]]; then
-  echo "ERROR: Edit PUBKEY in this script before running."
+if [[ -z "${PUBKEY}" || "${PUBKEY}" == 'REPLACE_WITH_AGENT_PUBLIC_KEY' ]]; then
+  if [[ -t 0 ]]; then
+    read -r -p "Public key file path [~/.ssh/id_ed25519.pub]: " PUBKEY_PATH
+    PUBKEY_PATH="${PUBKEY_PATH:-$HOME/.ssh/id_ed25519.pub}"
+    if [[ -f "${PUBKEY_PATH}" ]]; then
+      PUBKEY="$(cat "${PUBKEY_PATH}")"
+    else
+      read -r -p "Paste SSH public key line: " PUBKEY
+    fi
+  else
+    echo "ERROR: provide pubkey as argument or PUBKEY env var."
+    echo "Usage: ./agent_ro_setup.sh '<ssh-public-key-line>'"
+    exit 1
+  fi
+fi
+
+PUBKEY="$(printf '%s' "${PUBKEY}" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+if [[ -z "${PUBKEY}" ]]; then
+  echo "ERROR: public key cannot be empty."
+  exit 1
+fi
+if [[ "${PUBKEY}" == *$'\n'* ]]; then
+  echo "ERROR: public key must be a single line."
+  exit 1
+fi
+if [[ "${PUBKEY}" != ssh-* ]]; then
+  echo "ERROR: invalid public key format (expected line starting with ssh-)."
   exit 1
 fi
 
