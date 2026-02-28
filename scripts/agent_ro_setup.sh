@@ -221,13 +221,7 @@ apply_acl_with_progress() {
 
 if [[ -z "${PUBKEY}" || "${PUBKEY}" == 'REPLACE_WITH_AGENT_PUBLIC_KEY' ]]; then
   if [[ -t 0 ]]; then
-    read -r -p "Public key file path [~/.ssh/id_ed25519.pub]: " PUBKEY_PATH
-    PUBKEY_PATH="${PUBKEY_PATH:-$HOME/.ssh/id_ed25519.pub}"
-    if [[ -f "${PUBKEY_PATH}" ]]; then
-      PUBKEY="$(cat "${PUBKEY_PATH}")"
-    else
-      read -r -p "Paste SSH public key line: " PUBKEY
-    fi
+    read -r -p "Paste SSH public key line: " PUBKEY
   else
     echo "ERROR: provide pubkey as argument or PUBKEY env var."
     echo "Usage: ./agent_ro_setup.sh '<ssh-public-key-line>'"
