@@ -70,11 +70,11 @@ echo "[1/3] Positive checks (should succeed)..."
 run_expect_ok "directory metadata" 'ls -ld /etc'
 run_expect_ok "find sshd config" 'find /etc -maxdepth 2 -name sshd_config'
 run_expect_ok "cat small file" 'cat /etc/hostname'
-run_expect_ok "stat passwd" 'stat /etc/passwd'
+run_expect_ok "stat passwd" 'stat -c "%n %a %U:%G" /etc/passwd'
 
 echo "  + search ssh config (rg or grep -R)"
-if ! ssh "${SSH_OPTS[@]}" "${TARGET}" 'rg -n ForceCommand /etc/ssh'; then
-  if ! ssh "${SSH_OPTS[@]}" "${TARGET}" 'grep -Rn ForceCommand /etc/ssh'; then
+if ! ssh "${SSH_OPTS[@]}" "${TARGET}" 'rg -n ForceCommand /etc/ssh/sshd_config /etc/ssh/sshd_config.d/90-agent-ro.conf'; then
+  if ! ssh "${SSH_OPTS[@]}" "${TARGET}" 'grep -Rn ForceCommand /etc/ssh/sshd_config /etc/ssh/sshd_config.d/90-agent-ro.conf'; then
     echo "    FAIL: neither rg nor grep -R succeeded"
     FAIL=1
   fi
