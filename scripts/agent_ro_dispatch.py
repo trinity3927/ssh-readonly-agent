@@ -23,18 +23,11 @@ BAD_FIND_TOKENS = {
     "-execdir",
     "-ok",
     "-okdir",
+    "-files0-from",
     "-fprint",
     "-fprint0",
     "-fprintf",
     "-fls",
-}
-GIT_GLOBAL_WITH_VALUE = {
-    "-C",
-    "-c",
-    "--git-dir",
-    "--work-tree",
-    "--namespace",
-    "--config-env",
 }
 RG_LONG_WITH_VALUE = {
     "--after-context",
@@ -227,7 +220,7 @@ def parse_find_args(args: Sequence[str], allowed_roots: Sequence[str]) -> None:
     paths: List[str] = []
     expression_started = False
     for token in args:
-        if token in BAD_FIND_TOKENS:
+        if token in BAD_FIND_TOKENS or token.startswith("-files0-from="):
             raise PolicyError(f"find option not allowed: {token}")
         if not expression_started and not token.startswith("-") and token not in {"!", "(", ")", ","}:
             paths.append(token)
@@ -304,8 +297,14 @@ def parse_search_args(
     positionals: List[str] = []
     has_recursive = False
     has_explicit_pattern = False
+    option_paths: List[str] = []
     long_with_value_set = set(long_with_value)
     short_with_value_set = set(short_with_value)
+    long_path_options = {
+        "rg": {"--file", "--ignore-file"},
+        "grep": {"--file", "--exclude-from"},
+    }.get(command, set())
+    forbidden_long_options = {"--pre", "--pre-glob"} if command == "rg" else set()
     i = 0
     while i < len(args):
         token = args[i]
@@ -313,7 +312,11 @@ def parse_search_args(
             positionals.extend(args[i + 1 :])
             break
         if token.startswith("--"):
-            if token in {"--regexp", "--file"}:
+            option_name, has_inline = token.split("=", 1)[0], "=" in token
+            inline_value = token.split("=", 1)[1] if has_inline else ""
+            if option_name in forbidden_long_options:
+                raise PolicyError(f"{command} option not allowed: {option_name}")
+            if option_name in {"--regexp", "--file"}:
                 has_explicit_pattern = True
             if command == "grep":
                 if token in {"--recursive", "--dereference-recursive"}:
@@ -326,9 +329,17 @@ def parse_search_args(
                     directory_mode = args[i + 1].strip().lower()
                     if directory_mode == "recurse":
                         has_recursive = True
-            option_name, has_inline = token.split("=", 1)[0], "=" in token
-            if option_name in long_with_value_set and not has_inline:
-                i += 2
+            if option_name in long_with_value_set:
+                if has_inline:
+                    option_value = inline_value
+                else:
+                    if i + 1 >= len(args):
+                        raise PolicyError(f"{command} option missing value: {option_name}")
+                    option_value = args[i + 1]
+                    i += 1
+                if option_name in long_path_options:
+                    option_paths.append(option_value)
+                i += 1
                 continue
             i += 1
             continue
@@ -340,10 +351,22 @@ def parse_search_args(
                     has_explicit_pattern = True
             if command == "rg" and ("e" in token[1:] or "f" in token[1:]):
                 has_explicit_pattern = True
-            short_opt = token[:2]
-            if short_opt in short_with_value_set and len(token) == 2:
-                i += 2
-                continue
+            short_flags = token[1:]
+            j = 0
+            while j < len(short_flags):
+                short_opt = "-" + short_flags[j]
+                if short_opt in short_with_value_set:
+                    if j + 1 < len(short_flags):
+                        option_value = short_flags[j + 1 :]
+                    else:
+                        if i + 1 >= len(args):
+                            raise PolicyError(f"{command} option missing value: {short_opt}")
+                        option_value = args[i + 1]
+                        i += 1
+                    if short_opt == "-f":
+                        option_paths.append(option_value)
+                    break
+                j += 1
             i += 1
             continue
         positionals.append(token)
@@ -359,6 +382,8 @@ def parse_search_args(
             raise PolicyError(f"{command} requires PATTERN and at least one PATH")
         paths = positionals[1:]
     validate_paths(paths, allowed_roots, command)
+    if option_paths:
+        validate_paths(option_paths, allowed_roots, f"{command} option")
 
 
 def parse_git_args(args: List[str], allowed_roots: Sequence[str]) -> None:
@@ -366,30 +391,14 @@ def parse_git_args(args: List[str], allowed_roots: Sequence[str]) -> None:
     c_paths: List[str] = []
     while i < len(args):
         token = args[i]
-        if token in GIT_GLOBAL_WITH_VALUE:
+        if token == "-C":
             if i + 1 >= len(args):
-                raise PolicyError(f"git option missing value: {token}")
-            value = args[i + 1]
-            if token == "-C":
-                c_paths.append(value)
-            if token in {"--git-dir", "--work-tree"}:
-                c_paths.append(value)
+                raise PolicyError("git option missing value: -C")
+            c_paths.append(args[i + 1])
             i += 2
             continue
-        if token.startswith("--git-dir="):
-            c_paths.append(token.split("=", 1)[1])
-            i += 1
-            continue
-        if token.startswith("--work-tree="):
-            c_paths.append(token.split("=", 1)[1])
-            i += 1
-            continue
-        if token.startswith("--namespace=") or token.startswith("--config-env="):
-            i += 1
-            continue
         if token.startswith("-"):
-            i += 1
-            continue
+            raise PolicyError(f"git option not allowed: {token}")
         break
 
     if i >= len(args):

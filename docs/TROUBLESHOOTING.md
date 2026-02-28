@@ -116,6 +116,33 @@ Fix:
   - `grep --recursive <pattern> <path>`
   - `grep --directories recurse <pattern> <path>`
 
+## `DENY: rg option not allowed: --pre` (or `--pre-glob`)
+
+Cause:
+- Dispatcher blocks ripgrep preprocessors to prevent external command execution paths.
+
+Fix:
+- Remove `--pre` / `--pre-glob`.
+- Use native `rg`/`grep` options only.
+
+## `DENY: path outside allowed roots` when using `-f` / `--file` / `--ignore-file` / `--exclude-from`
+
+Cause:
+- File-valued option paths are allowlist-checked just like primary command paths.
+
+Fix:
+- Store these files under one of the configured `allowed_roots`.
+- Or extend policy roots via setup options (`--extra-root`, `ALLOWED_ROOTS`, `EXTRA_ALLOWED_ROOTS`).
+
+## `DENY: git option not allowed: -c` (or `--git-dir` / `--work-tree`)
+
+Cause:
+- Dispatcher permits only `git -C <repo-path> log|show` pre-subcommand options.
+
+Fix:
+- Use only `-C <repo-path>` before `log` or `show`.
+- Keep repo path inside `allowed_roots`.
+
 ## `ls` shows unexpected root when run without a path
 
 Behavior:

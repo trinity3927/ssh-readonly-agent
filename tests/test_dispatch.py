@@ -22,6 +22,10 @@ class DispatcherBehaviorTests(unittest.TestCase):
         self.allowed_root.mkdir(parents=True, exist_ok=True)
         self.sample_file = self.allowed_root / "sample.txt"
         self.sample_file.write_text("hello\n", encoding="utf-8")
+        self.pattern_file = self.allowed_root / "patterns.txt"
+        self.pattern_file.write_text("hello\n", encoding="utf-8")
+        self.outside_file = self.tmp / "outside.txt"
+        self.outside_file.write_text("hello\n", encoding="utf-8")
         self.policy_file = self.tmp / "policy.json"
 
     def tearDown(self) -> None:
@@ -89,6 +93,39 @@ class DispatcherBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("sample.txt:hello", result.stdout)
 
+    def test_grep_recursive_with_allowed_pattern_file_is_allowed(self) -> None:
+        result = self.run_dispatch(f"grep -R -f {self.pattern_file} {self.allowed_root}")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("sample.txt:hello", result.stdout)
+
+    def test_grep_recursive_with_outside_pattern_file_is_denied(self) -> None:
+        result = self.run_dispatch(f"grep -R -f {self.outside_file} {self.allowed_root}")
+        self.assertEqual(result.returncode, 126)
+        self.assertIn("DENY: path outside allowed roots", result.stderr)
+
+    @unittest.skipIf(shutil.which("rg") is None, "rg not available")
+    def test_rg_with_allowed_ignore_file_is_allowed(self) -> None:
+        result = self.run_dispatch(f"rg --ignore-file {self.pattern_file} hello {self.allowed_root}")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("sample.txt:hello", result.stdout)
+
+    @unittest.skipIf(shutil.which("rg") is None, "rg not available")
+    def test_rg_with_outside_ignore_file_is_denied(self) -> None:
+        result = self.run_dispatch(f"rg --ignore-file {self.outside_file} hello {self.allowed_root}")
+        self.assertEqual(result.returncode, 126)
+        self.assertIn("DENY: path outside allowed roots", result.stderr)
+
+    @unittest.skipIf(shutil.which("rg") is None, "rg not available")
+    def test_rg_preprocessor_option_is_denied(self) -> None:
+        result = self.run_dispatch(f"rg --pre /bin/cat hello {self.allowed_root}")
+        self.assertEqual(result.returncode, 126)
+        self.assertIn("DENY: rg option not allowed: --pre", result.stderr)
+
+    def test_find_files0_from_is_denied(self) -> None:
+        result = self.run_dispatch(f"find {self.allowed_root} -files0-from {self.outside_file}")
+        self.assertEqual(result.returncode, 126)
+        self.assertIn("DENY: find option not allowed: -files0-from", result.stderr)
+
     @unittest.skipIf(shutil.which("git") is None, "git not available")
     def test_git_status_is_denied_but_log_is_allowed(self) -> None:
         repo = self.allowed_root / "repo"
@@ -120,10 +157,16 @@ class DispatcherBehaviorTests(unittest.TestCase):
 
         allowed = self.run_dispatch(f"git -C {repo} log --oneline -n 1", commands=["git"])
         denied = self.run_dispatch(f"git -C {repo} status", commands=["git"])
+        denied_global = self.run_dispatch(
+            f"git -C {repo} -c include.path={self.outside_file} log --oneline -n 1",
+            commands=["git"],
+        )
 
         self.assertEqual(allowed.returncode, 0)
         self.assertEqual(denied.returncode, 126)
+        self.assertEqual(denied_global.returncode, 126)
         self.assertIn("DENY: only 'git log' and 'git show' are allowed", denied.stderr)
+        self.assertIn("DENY: git option not allowed: -c", denied_global.stderr)
 
 
 if __name__ == "__main__":

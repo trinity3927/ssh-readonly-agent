@@ -8,14 +8,15 @@ Provision a locked SSH account (`agent_ro`) for read-only remote evidence collec
 - No interactive shell, no TTY, no forwarding.
 - ForceCommand dispatcher with command allowlist:
   - `find`
-  - `rg`
+  - `rg` (preprocessor options `--pre`/`--pre-glob` are denied)
   - `grep` (recursive only: `-R/-r`, `--recursive`, `--dereference-recursive`, or `--directories recurse`)
   - `cat`
   - `ls` (without a path, defaults to the first allowed root)
   - `stat`
-  - `git log`
-  - `git show`
+  - `git log` (requires `-C <repo-path>` in allowed roots)
+  - `git show` (requires `-C <repo-path>` in allowed roots)
 - Path allowlist enforcement in dispatcher using resolved real paths.
+  - Includes file-valued options (for example `grep -f`, `grep --exclude-from`, `rg --file`, `rg --ignore-file`).
 - Runtime safety limits per command:
   - timeout (`max_cmd_seconds`)
   - streamed output cap (`max_output_bytes`)
