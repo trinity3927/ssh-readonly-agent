@@ -105,6 +105,29 @@ Common causes:
 - Policy roots do not include expected paths.
 - `rg` not installed (verify falls back to `grep -R`).
 
+## `DENY: grep allowed only with recursive options`
+
+Cause:
+- `grep` was run without a recursive mode.
+
+Fix:
+- Use one of:
+  - `grep -R <pattern> <path>`
+  - `grep --recursive <pattern> <path>`
+  - `grep --directories recurse <pattern> <path>`
+
+## `ls` shows unexpected root when run without a path
+
+Behavior:
+- Plain `ls` runs against the first `allowed_roots` entry in policy.
+
+Action:
+- Pass an explicit path if you want a different allowed directory:
+
+```bash
+ls -la /var/log
+```
+
 ## Rollback did not remove old ACLs from legacy installs
 
 Cause:

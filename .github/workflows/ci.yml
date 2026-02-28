@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Shell syntax checks
+        run: |
+          bash -n scripts/agent_ro_setup.sh
+          bash -n scripts/agent_ro_rollback.sh
+          bash -n scripts/agent_ro_verify.sh
+
+      - name: Python compile check
+        run: python3 -m py_compile scripts/agent_ro_dispatch.py
+
+      - name: Dispatcher behavior tests
+        run: python3 -m unittest discover -s tests -p "test_*.py" -v

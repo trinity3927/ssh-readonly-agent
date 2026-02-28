@@ -250,9 +250,10 @@ def parse_cat_args(args: Sequence[str], allowed_roots: Sequence[str]) -> None:
     validate_paths(paths, allowed_roots, "cat")
 
 
-def parse_ls_args(args: Sequence[str], allowed_roots: Sequence[str]) -> None:
+def parse_ls_args(args: Sequence[str], allowed_roots: Sequence[str]) -> List[str]:
     paths: List[str] = []
     parse_opts = True
+    normalized_args = list(args)
     for token in args:
         if parse_opts and token == "--":
             parse_opts = False
@@ -261,8 +262,13 @@ def parse_ls_args(args: Sequence[str], allowed_roots: Sequence[str]) -> None:
             continue
         paths.append(token)
     if not paths:
-        paths = ["."]
+        if not allowed_roots:
+            raise PolicyError("ls requires at least one allowed root")
+        default_target = allowed_roots[0]
+        normalized_args.append(default_target)
+        paths = [default_target]
     validate_paths(paths, allowed_roots, "ls")
+    return normalized_args
 
 
 def parse_stat_args(args: Sequence[str], allowed_roots: Sequence[str]) -> None:
@@ -309,6 +315,17 @@ def parse_search_args(
         if token.startswith("--"):
             if token in {"--regexp", "--file"}:
                 has_explicit_pattern = True
+            if command == "grep":
+                if token in {"--recursive", "--dereference-recursive"}:
+                    has_recursive = True
+                elif token.startswith("--directories="):
+                    directory_mode = token.split("=", 1)[1].strip().lower()
+                    if directory_mode == "recurse":
+                        has_recursive = True
+                elif token == "--directories" and i + 1 < len(args):
+                    directory_mode = args[i + 1].strip().lower()
+                    if directory_mode == "recurse":
+                        has_recursive = True
             option_name, has_inline = token.split("=", 1)[0], "=" in token
             if option_name in long_with_value_set and not has_inline:
                 i += 2
@@ -333,7 +350,7 @@ def parse_search_args(
         i += 1
 
     if command == "grep" and not has_recursive:
-        raise PolicyError("grep allowed only with -R/-r recursion")
+        raise PolicyError("grep allowed only with recursive options (-R/-r/--recursive)")
 
     if has_explicit_pattern:
         paths = positionals
@@ -400,7 +417,7 @@ def validate_command(argv: List[str], allowed_roots: Sequence[str]) -> None:
     elif command == "cat":
         parse_cat_args(args, allowed_roots)
     elif command == "ls":
-        parse_ls_args(args, allowed_roots)
+        argv[1:] = parse_ls_args(args, allowed_roots)
     elif command == "stat":
         parse_stat_args(args, allowed_roots)
     elif command == "rg":

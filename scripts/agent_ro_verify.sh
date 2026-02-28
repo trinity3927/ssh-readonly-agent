@@ -4,6 +4,23 @@ if [ -z "${BASH_VERSION:-}" ]; then
 fi
 set -euo pipefail
 
+usage() {
+  cat <<'USAGE'
+Usage: ./scripts/agent_ro_verify.sh [--help] <host>
+
+Arguments:
+  <host>       Target host DNS name or IP for agent_ro verification.
+
+Environment:
+  HOST         Optional host fallback when <host> argument is omitted.
+USAGE
+}
+
+if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
+  usage
+  exit 0
+fi
+
 HOST="${HOST:-}"
 if [[ "$#" -ge 1 ]]; then
   HOST="$1"
@@ -15,7 +32,7 @@ if [[ -z "${HOST}" ]]; then
     read -r -p 'Target host (DNS or IP): ' HOST
   else
     echo 'ERROR: provide host as argument or HOST env var.' >&2
-    echo 'Usage: ./scripts/agent_ro_verify.sh <host>' >&2
+    usage >&2
     exit 1
   fi
 fi

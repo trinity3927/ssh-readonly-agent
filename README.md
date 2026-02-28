@@ -9,9 +9,9 @@ Provision a locked SSH account (`agent_ro`) for read-only remote evidence collec
 - ForceCommand dispatcher with command allowlist:
   - `find`
   - `rg`
-  - `grep` (recursive only)
+  - `grep` (recursive only: `-R/-r`, `--recursive`, `--dereference-recursive`, or `--directories recurse`)
   - `cat`
-  - `ls`
+  - `ls` (without a path, defaults to the first allowed root)
   - `stat`
   - `git log`
   - `git show`
@@ -137,6 +137,20 @@ Optional rollback flags:
 - `--keep-acls`
 - `--keep-state`
 - `--legacy-acl-sweep` (broad fallback cleanup for old installs; use with care)
+
+## Quality checks
+
+Run local checks before deployment changes:
+
+```bash
+bash -n scripts/agent_ro_setup.sh
+bash -n scripts/agent_ro_rollback.sh
+bash -n scripts/agent_ro_verify.sh
+python3 -m py_compile scripts/agent_ro_dispatch.py
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+CI runs the same checks on push and pull requests.
 
 ## Security notes
 
