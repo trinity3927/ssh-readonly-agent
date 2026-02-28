@@ -1,12 +1,32 @@
 # Troubleshooting
 
-## SSH reset or handshake failure after setup
+## `DENY: missing policy file` or policy parse errors
+
+Symptom:
+- Commands via `agent_ro` are denied with policy load errors.
+
+Checks:
+
+```bash
+sudo ls -l /etc/agent-ro/policy.json
+sudo sed -n '1,220p' /etc/agent-ro/policy.json
+sudo python3 -m json.tool /etc/agent-ro/policy.json >/dev/null
+```
+
+Fix:
+- Re-run setup to regenerate policy and manifest:
+
+```bash
+./scripts/agent_ro_setup.sh 'ssh-ed25519 AAAA... comment'
+```
+
+## SSH handshake/reset issues after ACL operations
 
 Symptom:
 - `kex_exchange_identification: read: Connection reset by peer`
 
 Likely cause:
-- Host private key permissions are too open.
+- SSH host private key permissions drifted.
 
 Fix:
 
@@ -15,30 +35,48 @@ sudo setfacl -b /etc/ssh/ssh_host_*_key
 sudo chown root:root /etc/ssh/ssh_host_*_key
 sudo chmod 600 /etc/ssh/ssh_host_*_key
 sudo sshd -t
-sudo systemctl restart ssh || sudo systemctl restart ssh.socket
+sudo systemctl restart sshd || sudo systemctl restart ssh
 ```
 
-## Step 6 feels stuck
+## `sshd -t` fails during setup
+
+Checks:
+
+```bash
+sudo sshd -t
+sudo ls -l /etc/ssh/sshd_config.d/
+sudo sed -n '1,220p' /etc/ssh/sshd_config
+sudo sed -n '1,220p' /etc/ssh/sshd_config.d/90-agent-ro.conf
+```
+
+Notes:
+- Setup prefers drop-in config when `/etc/ssh/sshd_config.d/*.conf` is included.
+- Otherwise it writes a managed block in `/etc/ssh/sshd_config`.
+
+## Setup skips roots as invalid
+
+Symptom:
+- Setup warns a root is skipped.
 
 Cause:
-- ACL recursion over large trees (especially `/var/lib/docker`, `/mnt`) is I/O heavy.
+- Root is not an absolute path, does not exist, or is not a directory.
+
+Fix:
+- Provide valid absolute directories via `--extra-root`, `ALLOWED_ROOTS`, or `EXTRA_ALLOWED_ROOTS`.
+
+## ACL apply is slow
+
+Cause:
+- Recursive ACL writes across large trees are I/O heavy.
 
 Options:
 
 ```bash
-bash scripts/agent_ro_setup.sh
-```
+# keep ACL disabled (default)
+./scripts/agent_ro_setup.sh 'ssh-ed25519 AAAA... comment'
 
-Enable ACL writes only when needed:
-
-```bash
-APPLY_ACL=1 bash scripts/agent_ro_setup.sh
-```
-
-Force reapply explicitly:
-
-```bash
-APPLY_ACL=1 FORCE_ACL=1 bash scripts/agent_ro_setup.sh
+# enable only when needed
+APPLY_ACL=1 ./scripts/agent_ro_setup.sh 'ssh-ed25519 AAAA... comment'
 ```
 
 ## `setfacl: Operation not supported`
@@ -47,50 +85,37 @@ Cause:
 - Target filesystem does not support POSIX ACLs.
 
 Behavior:
-- Script continues and reports skipped paths.
+- ACL step reports skips/failures; setup still completes.
 
 Action:
-- Accept the skip for those mount points, or remove unsupported paths from `ALLOWED_DIRS` in setup script.
+- Accept skip for unsupported filesystems or remove those roots from allowlist.
 
-## `sshd -t` fails on setup
+## Verify script failures
 
-Check syntax and includes:
-
-```bash
-sudo sshd -t
-sudo ls -l /etc/ssh/sshd_config.d/
-sudo sed -n '1,200p' /etc/ssh/sshd_config.d/90-agent-ro.conf
-```
-
-## Verify script denies everything
-
-Check that you used the right key and host:
-- `PUBKEY` in `agent_ro_setup.sh` must be the agent public key.
-- `HOST` in `agent_ro_verify.sh` must resolve/reach the target host.
-
-Also verify the forced command exists:
+Checks:
 
 ```bash
+./scripts/agent_ro_verify.sh <host>
 sudo ls -l /usr/local/sbin/agent_ro_dispatch.py
+sudo sed -n '1,220p' /etc/agent-ro/policy.json
 ```
 
-## Local SSH private key became unreadable by SSH
+Common causes:
+- Wrong host/key pair used from client.
+- Policy roots do not include expected paths.
+- `rg` not installed (verify falls back to `grep -R`).
 
-Symptom:
-- `Permissions 0640 for '/home/<user>/.ssh/id_ed25519' are too open.`
+## Rollback did not remove old ACLs from legacy installs
 
 Cause:
-- ACL or mode drift on private keys.
+- Manifest-based ACL cleanup only removes ACL entries recorded in touched-path manifests.
+- Very old installs may not have those manifests.
 
-Fix current user quickly:
+Action:
+- Run rollback with explicit legacy sweep (broad operation):
 
 ```bash
-setfacl -Rb ~/.ssh
-chmod 700 ~/.ssh
-find ~/.ssh -maxdepth 1 -type f -name 'id_*' ! -name '*.pub' -exec chmod 600 {} +
-find ~/.ssh -maxdepth 1 -type f -name '*.pub' -exec chmod 644 {} +
+./scripts/agent_ro_rollback.sh --legacy-acl-sweep
 ```
 
-Prevention in this kit:
-- ACL writes are opt-in (`APPLY_ACL=1`).
-- Home ACL recursion is limited to the invoking user home and excludes secret directories.
+Use this only when required.

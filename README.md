@@ -1,122 +1,146 @@
 # ssh-readonly-agent
 
-Standalone kit to provision an SSH account (`agent_ro`) for read-only remote evidence collection.
+Provision a locked SSH account (`agent_ro`) for read-only remote evidence collection with explicit command and path policy enforcement.
 
-## What it enforces
+## What this kit enforces
 
-- SSH login for `agent_ro` via public key only.
-- Non-interactive command execution only (no interactive shell, no TTY, no forwarding).
-- Allowed commands only:
+- Public-key SSH login for `agent_ro` only.
+- No interactive shell, no TTY, no forwarding.
+- ForceCommand dispatcher with command allowlist:
   - `find`
   - `rg`
+  - `grep` (recursive only)
   - `cat`
   - `ls`
   - `stat`
   - `git log`
   - `git show`
-  - `grep -R` fallback if `rg` is missing
-- Opt-in ACL grants (`rX`) when `APPLY_ACL=1` on these effective paths:
-  - `/home/<invoking-user> /srv /opt /var/log /etc /var/lib/docker /mnt /data /media`
-- Home secret-path exclusions are always enforced:
-  - `.ssh .gnupg .aws .kube .docker .config/gcloud .local/share/keyrings .pki`
+- Path allowlist enforcement in dispatcher using resolved real paths.
+- Runtime safety limits per command:
+  - timeout (`max_cmd_seconds`)
+  - streamed output cap (`max_output_bytes`)
+- Syslog/journal audit events for allow/deny decisions (enabled by default).
+
+## Default policy footprint
+
+Conservative defaults:
+
+- `/etc`
+- `/var/log`
+- invoking-user home directory (auto-detected; override with `HOME_TARGET`)
+
+You can add more roots interactively (TTY prompt) or non-interactively via env/flags.
 
 ## Files
 
-- `scripts/agent_ro_setup.sh` - idempotent setup/provision script.
-- `scripts/agent_ro_verify.sh` - positive/negative SSH policy checks.
-- `scripts/agent_ro_rollback.sh` - optional rollback/cleanup script.
-- `docs/TROUBLESHOOTING.md` - common issues and fixes.
+- `scripts/agent_ro_setup.sh` - setup/install entrypoint (also supports `rollback` mode)
+- `scripts/agent_ro_dispatch.py` - dispatcher source installed to `/usr/local/sbin/agent_ro_dispatch.py`
+- `scripts/agent_ro_verify.sh` - policy-aware verification script
+- `scripts/agent_ro_rollback.sh` - full uninstall / rollback
+- `docs/TROUBLESHOOTING.md` - common issues and fixes
+
+## Managed host state
+
+- Policy: `/etc/agent-ro/policy.json`
+- Install manifest: `/var/lib/agent-ro-setup/install-manifest.json`
+- ACL touched-path manifests: `/var/lib/agent-ro-setup/acls/*.lst`
+- Dispatcher: `/usr/local/sbin/agent_ro_dispatch.py`
+- SSHD wiring:
+  - preferred: `/etc/ssh/sshd_config.d/90-agent-ro.conf`
+  - fallback: managed block in `/etc/ssh/sshd_config`
 
 ## Prerequisites
 
 - Linux host with OpenSSH server.
 - `sudo` access.
-- Optional but recommended for ACL grants: `acl` package (`setfacl`).
+- `python3` on target host.
+- Optional for ACL writes: `setfacl` (`acl` package).
 
 ## Quick Start
 
-1. Copy this folder to the target host.
-2. Run setup (safe default, no ACL writes). The script accepts pubkey by argument/env, or prompts for it:
+1. Copy this repo folder to the target host.
+2. Run setup with the agent public key:
 
 ```bash
 ./scripts/agent_ro_setup.sh 'ssh-ed25519 AAAA... comment'
 ```
 
-or
+or:
 
 ```bash
 PUBKEY='ssh-ed25519 AAAA... comment' ./scripts/agent_ro_setup.sh
 ```
 
-or run with no args and follow the prompt.
+If running in a TTY, setup can prompt to add extra allowed roots.
 
-3. If you want ACL grants, enable them explicitly:
-
-```bash
-APPLY_ACL=1 bash scripts/agent_ro_setup.sh
-```
-
-4. Run verify from another machine:
+3. Optional: enable ACL writes (default is off):
 
 ```bash
-./scripts/agent_ro_verify.sh homelab
+APPLY_ACL=1 ./scripts/agent_ro_setup.sh 'ssh-ed25519 AAAA... comment'
 ```
 
-## Useful run modes
-
-Enable ACL writes:
+4. Verify from your client machine:
 
 ```bash
-APPLY_ACL=1 bash scripts/agent_ro_setup.sh
+./scripts/agent_ro_verify.sh <host-or-ip>
 ```
 
-Skip ACL pass even when ACL is enabled:
+## Setup options
 
 ```bash
-APPLY_ACL=1 SKIP_ACL=1 bash scripts/agent_ro_setup.sh
+./scripts/agent_ro_setup.sh [install] [OPTIONS] [PUBKEY]
 ```
 
-Force ACL reapply:
+Common options:
+
+- `--pubkey <key>`
+- `--extra-root <dir>` (repeatable)
+- `--home-target <dir>`
+- `--apply-acl`
+- `--force-acl`
+- `--max-cmd-seconds <n>`
+- `--max-output-bytes <n>`
+- `--disable-logging` / `--enable-logging`
+- `--no-prompt`
+
+Useful env vars:
+
+- `ALLOWED_ROOTS=/etc,/var/log,/home/alice` (replace defaults)
+- `EXTRA_ALLOWED_ROOTS=/srv/data,/opt/reports` (append)
+- `HOME_TARGET=/home/alice`
+- `APPLY_ACL=1`
+
+## Rollback / uninstall
+
+Full uninstall is the default behavior:
 
 ```bash
-APPLY_ACL=1 FORCE_ACL=1 bash scripts/agent_ro_setup.sh
+./scripts/agent_ro_rollback.sh
 ```
 
-Override detected home target:
+or through setup wrapper:
 
 ```bash
-HOME_TARGET=/home/samtheman bash scripts/agent_ro_setup.sh
+./scripts/agent_ro_setup.sh rollback
 ```
 
-Tune scanner timing in step 6:
+Default rollback behavior:
 
-```bash
-SPIN_FRAME_INTERVAL_MS=240 SPIN_BLINK_HOLD_MS=1500 bash scripts/agent_ro_setup.sh
-```
+- Removes `agent_ro` user/home.
+- Removes dispatcher, policy file, SSHD wiring.
+- Removes ACL entries using manifest-recorded touched paths.
+- Purges state under `/var/lib/agent-ro-setup`.
 
-## Rollback
+Optional rollback flags:
 
-Base rollback (keeps user):
+- `--keep-user`
+- `--keep-acls`
+- `--keep-state`
+- `--legacy-acl-sweep` (broad fallback cleanup for old installs; use with care)
 
-```bash
-bash scripts/agent_ro_rollback.sh
-```
+## Security notes
 
-Rollback + remove `agent_ro` user:
-
-```bash
-REMOVE_USER=1 bash scripts/agent_ro_rollback.sh
-```
-
-Rollback + remove ACL entries written by setup (can be slow):
-
-```bash
-REMOVE_ACLS=1 bash scripts/agent_ro_rollback.sh
-```
-
-## Security Notes
-
-- Setup includes a safety guard that restores strict SSH host-key file perms (`600`) to avoid SSH daemon lockout.
-- `/etc/ssh/ssh_host_*_key` is excluded from recursive ACL application.
-- Home ACL recursion is scoped to the invoking user's home directory with strict secret-folder exclusions.
-- If a filesystem does not support POSIX ACLs, setup will continue and report skipped paths.
+- ACL writes are opt-in (`APPLY_ACL=1`).
+- Home secret paths are excluded from home ACL recursion.
+- `/etc/ssh/ssh_host_*_key` files are excluded from ACL recursion and repaired to strict permissions.
+- Denied commands return explicit `DENY: ...` reason messages.
