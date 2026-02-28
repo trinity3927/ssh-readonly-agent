@@ -4,11 +4,26 @@ if [ -z "${BASH_VERSION:-}" ]; then
 fi
 set -euo pipefail
 
-# Set this before running.
-HOST='REPLACE_WITH_HOST_OR_IP'
+# Usage:
+#   ./agent_ro_verify.sh <host>
+#   HOST=<host> ./agent_ro_verify.sh
+HOST="${HOST:-REPLACE_WITH_HOST_OR_IP}"
+if [[ "${#}" -ge 1 ]]; then
+  HOST="$1"
+fi
 
-if [[ "${HOST}" == 'REPLACE_WITH_HOST_OR_IP' ]]; then
-  echo "ERROR: Edit HOST in this script before running."
+if [[ -z "${HOST}" || "${HOST}" == 'REPLACE_WITH_HOST_OR_IP' ]]; then
+  if [[ -t 0 ]]; then
+    read -r -p "Target host (DNS or IP): " HOST
+  else
+    echo "ERROR: provide host as argument or HOST env var."
+    echo "Usage: ./agent_ro_verify.sh <host>"
+    exit 1
+  fi
+fi
+
+if [[ -z "${HOST}" ]]; then
+  echo "ERROR: host cannot be empty."
   exit 1
 fi
 
